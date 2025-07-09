@@ -15,6 +15,8 @@ use nix::{
 use std::{thread, time::Duration};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
+const MISSING_THRES: u8 = 10;
+
 fn babysit<'a>(ret: i32, sys: &'a System) {
     if ret == 0 {
         println!("Helper exited successfuly! SDDM is probably happy!");
@@ -46,6 +48,7 @@ fn main() {
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
     );
+    let mut missing_helper_count: u8 = 0;
 
     println!("Ready to babysit SDDM!");
 
@@ -57,6 +60,7 @@ fn main() {
         let maybe_proc = proc_iter.next();
 
         if let Some(proc) = maybe_proc {
+            missing_helper_count = 0;
             let count = proc_iter.count();
             if count > 0 {
                 eprintln!("{} more SDDM helper were found! Suspicious…", count)
@@ -94,6 +98,13 @@ fn main() {
                         }
                     }
                 }
+            }
+        } else {
+            missing_helper_count += 1;
+            if missing_helper_count > MISSING_THRES {
+                println!("No SDDM helper?! Mayber it already died!");
+                babysit(-1, &sys);
+                missing_helper_count = 0;
             }
         }
     }
