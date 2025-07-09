@@ -82,8 +82,15 @@ fn main() {
                                 babysit(ret, &sys);
                                 break;
                             }
-                            WaitStatus::Stopped(_pid, sig) => match sig {
+                            WaitStatus::Stopped(r_pid, sig) => match sig {
                                 Signal::SIGSTOP => println!("Ptrace SIGSTOP ok"),
+                                Signal::SIGCHLD => {
+                                    println!("Helper received SIGCHLD, leaving it");
+                                    if let Err(e) = ptrace::detach(r_pid, None) {
+                                        eprint!("Failed to detach {i32_pid}: {}", e.desc());
+                                    }
+                                    break;
+                                }
                                 _ => {
                                     eprintln!("Process got stopped by {sig:?}");
                                 }
