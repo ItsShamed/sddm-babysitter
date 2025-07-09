@@ -12,6 +12,7 @@ use nix::{
     },
     unistd::Pid,
 };
+use std::{thread, time::Duration};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 fn babysit<'a>(ret: i32, sys: &'a System) {
@@ -49,6 +50,7 @@ fn main() {
     println!("Ready to babysit SDDM!");
 
     loop {
+        thread::sleep(Duration::from_millis(1500));
         sys.refresh_processes(ProcessesToUpdate::All, true);
 
         let mut proc_iter = sys.processes_by_exact_name("sddm-helper".as_ref());
