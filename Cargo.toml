@@ -1,0 +1,11 @@
+[package]
+name = "sddm-babysitter"
+authors = [ "tsrk. <tsrk@tsrk.me>" ]
+description = "A daemon to babysit SDDM that will cry if its helper dies"
+licence = "MIT"
+keywords = [ "linux", "sddm" ]
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sysinfo = "0.35.2"
