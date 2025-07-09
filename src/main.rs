@@ -13,18 +13,11 @@ use nix::{
     unistd::Pid,
 };
 use std::{thread, time::Duration};
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 const MISSING_THRES: u8 = 10;
 
-fn babysit<'a>(ret: i32, sys: &'a System) {
-    if ret == 0 {
-        println!("Helper exited successfuly! SDDM is probably happy!");
-        return;
-    }
-    println!("Oh no! Helper died tragically, SDDM will cry!");
-    println!("Killing X server to make it happy again…");
-
+fn kill_elon<'a>(sys: &'a System) {
     sys.processes_by_exact_name("X".as_ref())
         .filter(|x| {
             if let Some(parent_pid) = x.parent() {
@@ -44,6 +37,59 @@ fn babysit<'a>(ret: i32, sys: &'a System) {
         });
 }
 
+fn babysit<'a>(ret: i32, sys: &'a System) {
+    if ret == 0 {
+        println!("Helper exited successfuly! SDDM is probably happy!");
+        return;
+    }
+    println!("Oh no! Helper died tragically, SDDM will cry!");
+    println!("Killing X server to make it happy again…");
+    kill_elon(sys);
+}
+
+fn watch_helper<'a>(proc: &Process, sys: &'a System) {
+    if let Ok(i32_pid) = i32::try_from(proc.pid().as_u32()) {
+        let n_pid = Pid::from_raw(i32_pid);
+
+        if let Err(e) = ptrace::seize(n_pid, Options::empty()) {
+            eprintln!("Failed to trace process {i32_pid}: {}", e.desc());
+            return;
+        }
+        println!("Watching helper on pid {}…", i32_pid);
+
+        loop {
+            match waitpid(n_pid, None) {
+                Ok(status) => match status {
+                    WaitStatus::Exited(_pid, ret) => {
+                        babysit(ret, &sys);
+                        break;
+                    }
+                    WaitStatus::Stopped(r_pid, sig) => match sig {
+                        Signal::SIGSTOP => println!("Ptrace SIGSTOP ok"),
+                        Signal::SIGCHLD => {
+                            println!("Helper received SIGCHLD, leaving it");
+                            if let Err(e) = ptrace::detach(r_pid, None) {
+                                eprint!("Failed to detach {i32_pid}: {}", e.desc());
+                            }
+                            break;
+                        }
+                        _ => {
+                            eprintln!("Process got stopped by {sig:?}");
+                        }
+                    },
+                    x => {
+                        eprintln!("{:?}", x);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to wait for process {}: {}", i32_pid, e.desc());
+                    break;
+                }
+            }
+        }
+    }
+}
+
 fn main() {
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
@@ -52,67 +98,39 @@ fn main() {
 
     println!("Ready to babysit SDDM!");
 
+    let mut last_pid: Option<u32> = None;
+
     loop {
         thread::sleep(Duration::from_millis(1500));
         sys.refresh_processes(ProcessesToUpdate::All, true);
 
+        println!("Searching for helper process…");
+
         let mut proc_iter = sys.processes_by_exact_name("sddm-helper".as_ref());
-        let maybe_proc = proc_iter.next();
+        let mut helper_found = false;
 
-        if let Some(proc) = maybe_proc {
+        while let Some(proc) = proc_iter.next() {
+            if Some(proc.pid().as_u32()) == last_pid {
+                eprintln!("Skipping old helper!");
+                continue;
+            }
+            helper_found = true;
             missing_helper_count = 0;
-            let count = proc_iter.count();
-            if count > 0 {
-                eprintln!("{} more SDDM helper were found! Suspicious…", count)
-            }
+            last_pid = Some(proc.pid().as_u32());
+            println!("Found helper at pid {}", proc.pid().as_u32());
+            watch_helper(&proc, &sys);
+            break;
+        }
 
-            if let Ok(i32_pid) = i32::try_from(proc.pid().as_u32()) {
-                let n_pid = Pid::from_raw(i32_pid);
+        if helper_found {
+            continue;
+        }
 
-                if let Err(e) = ptrace::seize(n_pid, Options::empty()) {
-                    eprintln!("Failed to trace process {i32_pid}: {}", e.desc());
-                    continue;
-                }
-                println!("Watching helper on pid {}…", i32_pid);
-
-                loop {
-                    match waitpid(n_pid, None) {
-                        Ok(status) => match status {
-                            WaitStatus::Exited(_pid, ret) => {
-                                babysit(ret, &sys);
-                                break;
-                            }
-                            WaitStatus::Stopped(r_pid, sig) => match sig {
-                                Signal::SIGSTOP => println!("Ptrace SIGSTOP ok"),
-                                Signal::SIGCHLD => {
-                                    println!("Helper received SIGCHLD, leaving it");
-                                    if let Err(e) = ptrace::detach(r_pid, None) {
-                                        eprint!("Failed to detach {i32_pid}: {}", e.desc());
-                                    }
-                                    break;
-                                }
-                                _ => {
-                                    eprintln!("Process got stopped by {sig:?}");
-                                }
-                            },
-                            x => {
-                                eprintln!("{:?}", x);
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("Failed to wait for process {}: {}", i32_pid, e.desc());
-                            break;
-                        }
-                    }
-                }
-            }
-        } else {
-            missing_helper_count += 1;
-            if missing_helper_count > MISSING_THRES {
-                println!("No SDDM helper?! Mayber it already died!");
-                babysit(-1, &sys);
-                missing_helper_count = 0;
-            }
+        missing_helper_count += 1;
+        if missing_helper_count > MISSING_THRES {
+            println!("No SDDM helper?! Maybe it already died!");
+            kill_elon(&sys);
+            missing_helper_count = 0;
         }
     }
 }
