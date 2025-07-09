@@ -6,7 +6,7 @@
 
 use nix::{
     sys::{
-        ptrace,
+        ptrace::{self, Options},
         signal::Signal,
         wait::{waitpid, WaitStatus},
     },
@@ -69,7 +69,7 @@ fn main() {
             if let Ok(i32_pid) = i32::try_from(proc.pid().as_u32()) {
                 let n_pid = Pid::from_raw(i32_pid);
 
-                if let Err(e) = ptrace::attach(n_pid) {
+                if let Err(e) = ptrace::seize(n_pid, Options::empty()) {
                     eprintln!("Failed to trace process {i32_pid}: {}", e.desc());
                     continue;
                 }
