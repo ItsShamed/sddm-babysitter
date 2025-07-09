@@ -68,7 +68,7 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
                         Signal::SIGSTOP => println!("Ptrace SIGSTOP ok"),
                         Signal::SIGCHLD => {
                             println!("Helper received SIGCHLD, leaving it");
-                            if let Err(e) = ptrace::detach(r_pid, None) {
+                            if let Err(e) = ptrace::detach(r_pid, Signal::SIGCONT) {
                                 eprint!("Failed to detach {i32_pid}: {}", e.desc());
                             }
                             break;
