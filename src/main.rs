@@ -88,7 +88,10 @@ fn main() {
                                 eprintln!("{:?}", x);
                             }
                         },
-                        Err(e) => eprintln!("Failed to wait for process {}: {}", i32_pid, e.desc()),
+                        Err(e) => {
+                            eprintln!("Failed to wait for process {}: {}", i32_pid, e.desc());
+                            break;
+                        }
                     }
                 }
             }
