@@ -47,6 +47,50 @@ fn babysit<'a>(ret: i32, sys: &'a System) {
     kill_elon(sys);
 }
 
+fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
+    match status {
+        WaitStatus::Exited(_pid, ret) => {
+            babysit(ret, &sys);
+            true
+        }
+        WaitStatus::Stopped(r_pid, sig) => match sig {
+            Signal::SIGSTOP => {
+                println!("Ptrace SIGSTOP ok");
+                false
+            }
+            Signal::SIGCHLD => {
+                println!("Helper received SIGCHLD, leaving it");
+                if let Err(e) = ptrace::detach(r_pid, Signal::SIGCONT) {
+                    let i32_pid = r_pid.as_raw();
+                    eprintln!("Failed to detach {i32_pid}: {}", e.desc());
+                }
+                true
+            }
+            _ => {
+                eprintln!("Process got stopped by {sig:?}");
+                false
+            }
+        },
+        WaitStatus::PtraceEvent(r_pid, _sig, ev) => {
+            let event: ptrace::Event = unsafe { mem::transmute(ev as i32) };
+            println!("Received event {event:?}, attempting to continue");
+            if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
+                let i32_pid = r_pid.as_raw();
+                eprintln!("Failed to continue {i32_pid}: {}", e.desc());
+            }
+            false
+        }
+        WaitStatus::Signaled(_pid, sig, _cd) => {
+            println!("Helper received signal {sig:?}");
+            false
+        }
+        x => {
+            eprintln!("{:?}", x);
+            false
+        }
+    }
+}
+
 fn watch_helper<'a>(proc: &Process, sys: &'a System) {
     if let Ok(i32_pid) = i32::try_from(proc.pid().as_u32()) {
         let n_pid = Pid::from_raw(i32_pid);
@@ -59,40 +103,13 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
 
         loop {
             match waitpid(n_pid, None) {
-                Ok(status) => match status {
-                    WaitStatus::Exited(_pid, ret) => {
-                        babysit(ret, &sys);
+                Ok(status) => {
+                    if dispatch(status, sys) {
                         break;
                     }
-                    WaitStatus::Stopped(r_pid, sig) => match sig {
-                        Signal::SIGSTOP => println!("Ptrace SIGSTOP ok"),
-                        Signal::SIGCHLD => {
-                            println!("Helper received SIGCHLD, leaving it");
-                            if let Err(e) = ptrace::detach(r_pid, Signal::SIGCONT) {
-                                eprintln!("Failed to detach {i32_pid}: {}", e.desc());
-                            }
-                            break;
-                        }
-                        _ => {
-                            eprintln!("Process got stopped by {sig:?}");
-                        }
-                    },
-                    WaitStatus::PtraceEvent(r_pid, _sig, ev) => {
-                        let event: ptrace::Event = unsafe { mem::transmute(ev as i32) };
-                        println!("Received event {event:?}, attempting to continue");
-                        if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
-                            eprintln!("Failed to continue {i32_pid}: {}", e.desc());
-                        }
-                    }
-                    WaitStatus::Signaled(_pid, sig, _cd) => {
-                        println!("Helper received signal {sig:?}")
-                    }
-                    x => {
-                        eprintln!("{:?}", x);
-                    }
-                },
+                }
                 Err(e) => {
-                    eprintln!("Failed to wait for process {}: {}", i32_pid, e.desc());
+                    eprintln!("Failed to wait for process {i32_pid}: {}", e.desc());
                     break;
                 }
             }
