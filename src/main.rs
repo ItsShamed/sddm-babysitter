@@ -12,7 +12,7 @@ use nix::{
     },
     unistd::Pid,
 };
-use std::{thread, time::Duration};
+use std::{mem, thread, time::Duration};
 use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 const MISSING_THRES: u8 = 10;
@@ -69,7 +69,7 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
                         Signal::SIGCHLD => {
                             println!("Helper received SIGCHLD, leaving it");
                             if let Err(e) = ptrace::detach(r_pid, Signal::SIGCONT) {
-                                eprint!("Failed to detach {i32_pid}: {}", e.desc());
+                                eprintln!("Failed to detach {i32_pid}: {}", e.desc());
                             }
                             break;
                         }
@@ -77,6 +77,16 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
                             eprintln!("Process got stopped by {sig:?}");
                         }
                     },
+                    WaitStatus::PtraceEvent(r_pid, _sig, ev) => {
+                        let event: ptrace::Event = unsafe { mem::transmute(ev as i32) };
+                        println!("Received event {event:?}, attempting to continue");
+                        if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
+                            eprintln!("Failed to continue {i32_pid}: {}", e.desc());
+                        }
+                    }
+                    WaitStatus::Signaled(_pid, sig, _cd) => {
+                        println!("Helper received signal {sig:?}")
+                    }
                     x => {
                         eprintln!("{:?}", x);
                     }
