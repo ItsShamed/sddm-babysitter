@@ -16,3 +16,7 @@ I can't do anything! waaaaaah!!".
 ## Was Rust really necessary for this? It's only 90 LOC……
 
 No, but it's funsises, and I'm a little バカ and too lazy to do proper C stuff.
+
+> [!CAUTION]
+> I absolutely have no fucking idea of what I am doing. In its current state,
+> nothing is working and I'm still figuring out how to jiggle with `ptrace(2)`.

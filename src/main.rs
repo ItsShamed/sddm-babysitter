@@ -7,7 +7,7 @@
 use nix::{
     sys::{
         ptrace::{self, Options},
-        signal::Signal,
+        signal::{self, Signal},
         wait::{waitpid, WaitStatus},
     },
     unistd::Pid,
@@ -53,28 +53,17 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
             babysit(ret, &sys);
             true
         }
-        WaitStatus::Stopped(r_pid, sig) => match sig {
-            Signal::SIGSTOP => {
-                println!("Ptrace SIGSTOP ok");
-                false
+        WaitStatus::Stopped(r_pid, sig) => {
+            println!("Process {r_pid:?} got stopped by {sig:?}");
+            if let Err(e) = signal::kill(r_pid, Signal::SIGCONT) {
+                eprintln!("Failed to send SIGCONT to {r_pid:?}: {}", e.desc());
             }
-            Signal::SIGCHLD => {
-                println!("Helper received SIGCHLD, leaving it");
-                if let Err(e) = ptrace::detach(r_pid, Signal::SIGCONT) {
-                    let i32_pid = r_pid.as_raw();
-                    eprintln!("Failed to detach {i32_pid}: {}", e.desc());
-                }
-                true
-            }
-            _ => {
-                eprintln!("Process got stopped by {sig:?}");
-                false
-            }
-        },
-        WaitStatus::PtraceEvent(r_pid, _sig, ev) => {
+            false
+        }
+        WaitStatus::PtraceEvent(r_pid, sig, ev) => {
             let event: ptrace::Event = unsafe { mem::transmute(ev as i32) };
-            println!("Received event {event:?}, attempting to continue");
-            if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
+            println!("Received event {event:?}, with signal {sig:?} attempting to reinject signal");
+            if let Err(e) = ptrace::cont(r_pid, sig) {
                 let i32_pid = r_pid.as_raw();
                 eprintln!("Failed to continue {i32_pid}: {}", e.desc());
             }
