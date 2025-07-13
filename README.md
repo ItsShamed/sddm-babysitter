@@ -17,6 +17,6 @@ I can't do anything! waaaaaah!!".
 
 No, but it's funsises, and I'm a little バカ and too lazy to do proper C stuff.
 
-> [!CAUTION]
+> [!WARNING]
 > I absolutely have no fucking idea of what I am doing. In its current state,
-> nothing is working and I'm still figuring out how to jiggle with `ptrace(2)`.
+> it works, but it's probably prone to a lot of logic bugs
