@@ -4,6 +4,7 @@
 
 // SPDX-License-Identifier: MIT
 
+pub mod utils;
 use nix::{
     sys::{
         ptrace::{self, Options},
@@ -54,9 +55,21 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
             true
         }
         WaitStatus::Stopped(r_pid, sig) => {
-            println!("Process {r_pid:?} got stopped by {sig:?}");
-            if let Err(e) = signal::kill(r_pid, Signal::SIGCONT) {
-                eprintln!("Failed to send SIGCONT to {r_pid:?}: {}", e.desc());
+            println!("Process {} got stopped by {sig:?}", r_pid.as_raw());
+            if utils::is_signal_deadly(sig) {
+                println!("Reinjecting deadly signal");
+                if let Err(e) = ptrace::cont(r_pid, sig) {
+                    eprintln!("Failed to reinject deadly signal: {}", e.desc());
+                }
+            } else {
+                println!("Attempting to continue process");
+                if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
+                    eprintln!(
+                        "Failed to continue process {}: {}",
+                        r_pid.as_raw(),
+                        e.desc()
+                    );
+                }
             }
             false
         }
