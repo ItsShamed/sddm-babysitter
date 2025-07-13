@@ -50,7 +50,7 @@ fn kill_elon<'a>(sys: &'a System) {
 
 fn babysit<'a>(ret: i32, sys: &'a System) {
     if ret == 0 {
-        println!("Helper exited successfuly! SDDM is probably happy!");
+        println!("Helper exited successfully! SDDM is probably happy!");
         return;
     }
     println!("Oh no! Helper died tragically, SDDM will cry!");
