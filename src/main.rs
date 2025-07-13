@@ -56,20 +56,9 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
         }
         WaitStatus::Stopped(r_pid, sig) => {
             println!("Process {} got stopped by {sig:?}", r_pid.as_raw());
-            if utils::is_signal_deadly(sig) {
-                println!("Reinjecting deadly signal");
-                if let Err(e) = ptrace::cont(r_pid, sig) {
-                    eprintln!("Failed to reinject deadly signal: {}", e.desc());
-                }
-            } else {
-                println!("Attempting to continue process");
-                if let Err(e) = ptrace::cont(r_pid, Signal::SIGCONT) {
-                    eprintln!(
-                        "Failed to continue process {}: {}",
-                        r_pid.as_raw(),
-                        e.desc()
-                    );
-                }
+            println!("Reinjecting signal");
+            if let Err(e) = ptrace::cont(r_pid, sig) {
+                eprintln!("Failed to reinject signal: {}", e.desc());
             }
             false
         }
