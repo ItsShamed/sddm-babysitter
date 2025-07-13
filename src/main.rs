@@ -13,13 +13,15 @@ use nix::{
     unistd::Pid,
 };
 use std::{mem, thread, time::Duration};
-use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
-use utils::is_signal_deadly;
+use sysinfo::{Process, ProcessesToUpdate};
+use utils::{create_proc_sys, is_signal_deadly};
 
 const MISSING_THRES: u8 = 10;
 
-fn kill_elon<'a>(sys: &'a System) {
+fn kill_elon() {
+    let mut sys = create_proc_sys();
     let mut kill_attempts = 0;
+    sys.refresh_processes(ProcessesToUpdate::All, true);
 
     println!("Searching for X11 processes…");
 
@@ -48,20 +50,20 @@ fn kill_elon<'a>(sys: &'a System) {
     }
 }
 
-fn babysit<'a>(ret: i32, sys: &'a System) {
+fn babysit(ret: i32) {
     if ret == 0 {
         println!("Helper exited successfully! SDDM is probably happy!");
         return;
     }
     println!("Oh no! Helper died tragically, SDDM will cry!");
     println!("Killing X server to make it happy again…");
-    kill_elon(sys);
+    kill_elon();
 }
 
-fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
+fn dispatch(status: WaitStatus) -> bool {
     match status {
         WaitStatus::Exited(_pid, ret) => {
-            babysit(ret, sys);
+            babysit(ret);
             true
         }
         WaitStatus::Stopped(r_pid, sig) => {
@@ -84,7 +86,7 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
         WaitStatus::Signaled(_pid, sig, _cd) => {
             println!("Helper received signal {sig:?}");
             if is_signal_deadly(sig) {
-                babysit(128 + (sig as i32), sys);
+                babysit(128 + (sig as i32));
                 return true;
             }
             false
@@ -96,7 +98,7 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
     }
 }
 
-fn watch_helper<'a>(proc: &Process, sys: &'a System) {
+fn watch_helper(proc: &Process) {
     if let Ok(i32_pid) = i32::try_from(proc.pid().as_u32()) {
         let n_pid = Pid::from_raw(i32_pid);
 
@@ -109,7 +111,7 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
         loop {
             match waitpid(n_pid, None) {
                 Ok(status) => {
-                    if dispatch(status, sys) {
+                    if dispatch(status) {
                         break;
                     }
                 }
@@ -123,9 +125,7 @@ fn watch_helper<'a>(proc: &Process, sys: &'a System) {
 }
 
 fn main() {
-    let mut sys = System::new_with_specifics(
-        RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
-    );
+    let mut sys = create_proc_sys();
     let mut missing_helper_count: u8 = 0;
 
     println!("Ready to babysit SDDM!");
@@ -150,7 +150,7 @@ fn main() {
             missing_helper_count = 0;
             last_pid = Some(proc.pid().as_u32());
             println!("Found helper at pid {}", proc.pid().as_u32());
-            watch_helper(&proc, &sys);
+            watch_helper(&proc);
             break;
         }
 
@@ -161,7 +161,7 @@ fn main() {
         missing_helper_count += 1;
         if missing_helper_count > MISSING_THRES {
             println!("No SDDM helper?! Maybe it already died!");
-            kill_elon(&sys);
+            kill_elon();
             missing_helper_count = 0;
         }
     }

@@ -1,4 +1,5 @@
 use nix::sys::signal::Signal;
+use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
 pub fn is_signal_deadly(sig: Signal) -> bool {
     match sig {
@@ -12,4 +13,8 @@ pub fn is_signal_deadly(sig: Signal) -> bool {
         Signal::SIGWINCH => false,
         _ => true,
     }
+}
+
+pub fn create_proc_sys() -> System {
+    System::new_with_specifics(RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()))
 }
