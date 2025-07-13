@@ -8,34 +8,44 @@ pub mod utils;
 use nix::{
     sys::{
         ptrace::{self, Options},
-        signal::{self, Signal},
         wait::{waitpid, WaitStatus},
     },
     unistd::Pid,
 };
 use std::{mem, thread, time::Duration};
 use sysinfo::{Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+use utils::is_signal_deadly;
 
 const MISSING_THRES: u8 = 10;
 
 fn kill_elon<'a>(sys: &'a System) {
-    sys.processes_by_exact_name("X".as_ref())
-        .filter(|x| {
-            if let Some(parent_pid) = x.parent() {
-                if let Some(parent) = sys.process(parent_pid) {
-                    return parent.name() == "sddm";
-                }
+    let mut kill_attempts = 0;
+
+    println!("Searching for X11 processes…");
+
+    let x_processes = sys.processes_by_exact_name("X".as_ref()).filter(|x| {
+        if let Some(parent_pid) = x.parent() {
+            if let Some(parent) = sys.process(parent_pid) {
+                return parent.name() == "sddm";
             }
-            false
-        })
-        .for_each(|x| {
-            let xpid = x.pid().as_u32();
-            if x.kill() {
-                println!("Killing process {}", xpid);
-            } else {
-                eprintln!("Failed to kill process {}", xpid);
-            }
-        });
+        }
+        false
+    });
+
+    for x in x_processes {
+        let xpid = x.pid().as_u32();
+        println!("Found {xpid}!");
+        if x.kill() {
+            println!("Attempting to kill {xpid}…");
+            kill_attempts += 1;
+        } else {
+            eprintln!("Bruh, I could not even attempt to kill {xpid}");
+        }
+    }
+
+    if kill_attempts == 0 {
+        eprintln!("What? No X11 processes found?!");
+    }
 }
 
 fn babysit<'a>(ret: i32, sys: &'a System) {
@@ -51,7 +61,7 @@ fn babysit<'a>(ret: i32, sys: &'a System) {
 fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
     match status {
         WaitStatus::Exited(_pid, ret) => {
-            babysit(ret, &sys);
+            babysit(ret, sys);
             true
         }
         WaitStatus::Stopped(r_pid, sig) => {
@@ -73,6 +83,10 @@ fn dispatch<'a>(status: WaitStatus, sys: &'a System) -> bool {
         }
         WaitStatus::Signaled(_pid, sig, _cd) => {
             println!("Helper received signal {sig:?}");
+            if is_signal_deadly(sig) {
+                babysit(128 + (sig as i32), sys);
+                return true;
+            }
             false
         }
         x => {
